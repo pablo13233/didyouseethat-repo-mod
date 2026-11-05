@@ -182,9 +182,16 @@ namespace DidYouSeeThatMod.Services
 
             if (_shadowNormalizedProgress >= 1.0f)
             {
-                _shadowNormalizedProgress = 0.0f;
-                _shadowJitterMultiplier = UnityEngine.Random.Range(0.85f, 1.15f);
-                TriggerShadowHallucination(localPlayer, isolationFactor);
+                if (TriggerShadowHallucination(localPlayer, isolationFactor))
+                {
+                    _shadowNormalizedProgress = 0.0f;
+                    _shadowJitterMultiplier = UnityEngine.Random.Range(0.85f, 1.15f);
+                }
+                else
+                {
+                    // Player is facing a close wall; retry in a couple of seconds when looking down a longer hallway.
+                    _shadowNormalizedProgress = 0.92f;
+                }
             }
         }
 
@@ -315,11 +322,11 @@ namespace DidYouSeeThatMod.Services
             _logger.LogDebug($"Sonido personal '{clipKey}.ogg' reproducido (aislamiento={isolationFactor:F2}).");
         }
 
-        private void TriggerShadowHallucination(PlayerAvatar localPlayer, float isolationFactor)
+        private bool TriggerShadowHallucination(PlayerAvatar localPlayer, float isolationFactor)
         {
             if (!_shadowService.TryFindShadowTrajectory(localPlayer, out var startPos, out var endPos, out var duration))
             {
-                return;
+                return false;
             }
 
             var modelKind = _shadowService.PickRandomModel(out var entityIndex);
@@ -333,6 +340,7 @@ namespace DidYouSeeThatMod.Services
             _shadowService.SpawnShadow(modelKind, entityIndex, startPos, endPos, duration);
             _logger.LogDebug(
                 $"Sombra ({modelKind}, grupal={isGroupEvent}) generada por {duration:F1}s (aislamiento={isolationFactor:F2}).");
+            return true;
         }
 
         private bool ShouldTriggerAsGroupEvent(float isolationFactor)

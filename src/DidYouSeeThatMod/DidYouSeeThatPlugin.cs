@@ -37,7 +37,7 @@ namespace DidYouSeeThatMod
             var shadowService = new ShadowHallucinationService(ModConfig, Logger);
             _director = new HauntDirectorService(ModConfig, soundLibrary, proximityService, shadowService, Logger);
 
-            PlayerAndLevelPatches.Initialize(_director);
+            PlayerAndLevelPatches.Initialize(_director, ModConfig);
 
             _harmony = new Harmony(PluginInfo.PluginGuid);
             _harmony.PatchAll(typeof(PlayerAndLevelPatches));

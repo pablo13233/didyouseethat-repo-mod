@@ -93,26 +93,34 @@ namespace DidYouSeeThatMod.Configuration
             ShadowDurationMinSeconds = config.Bind(
                 "Shadows",
                 "ShadowDurationMinSeconds",
-                2.8f,
+                2.0f,
                 new ConfigDescription(
-                    "Duración mínima prudente (en segundos) que permanece visible una sombra desplazándose.",
+                    "Duración mínima (en segundos) antes de que la sombra desaparezca (2.0s por defecto).",
                     new AcceptableValueRange<float>(1.0f, 10.0f)));
 
             ShadowDurationMaxSeconds = config.Bind(
                 "Shadows",
                 "ShadowDurationMaxSeconds",
-                4.8f,
+                2.3f,
                 new ConfigDescription(
-                    "Duración máxima prudente (en segundos) que permanece visible una sombra desplazándose.",
-                    new AcceptableValueRange<float>(1.5f, 15.0f)));
+                    "Duración máxima (en segundos) para sombras que cruzan un pasillo a la distancia.",
+                    new AcceptableValueRange<float>(1.2f, 15.0f)));
 
             ShadowDirectGazeHoldSeconds = config.Bind(
                 "Shadows",
                 "ShadowDirectGazeHoldSeconds",
-                1.15f,
+                2.0f,
                 new ConfigDescription(
-                    "Tiempo prudente (en segundos) que la sombra aguanta cuando el jugador la mira directamente antes de desvanecerse.",
-                    new AcceptableValueRange<float>(0.3f, 5.0f)));
+                    "Tiempo (en segundos) que la sombra permanece visible antes de desvanecerse.",
+                    new AcceptableValueRange<float>(0.5f, 5.0f)));
+
+            FogDistanceMultiplier = config.Bind(
+                "Shadows",
+                "FogDistanceMultiplier",
+                1.35f,
+                new ConfigDescription(
+                    "Multiplicador de distancia del fog (niebla) y cámara del juego (1.35 = +35% de visión en pasillos para poder ver las sombras a lo lejos).",
+                    new AcceptableValueRange<float>(1.0f, 2.5f)));
 
             IsolationDistanceThreshold = config.Bind(
                 "Proximity",
@@ -190,6 +198,11 @@ namespace DidYouSeeThatMod.Configuration
         /// Gets the time in seconds a shadow remains visible after the player looks directly at it.
         /// </summary>
         public ConfigEntry<float> ShadowDirectGazeHoldSeconds { get; }
+
+        /// <summary>
+        /// Gets the multiplier applied to the game's fog end distance and camera far clip plane.
+        /// </summary>
+        public ConfigEntry<float> FogDistanceMultiplier { get; }
 
         /// <summary>
         /// Gets the distance in meters to the nearest living teammate at which isolation acceleration reaches its target.

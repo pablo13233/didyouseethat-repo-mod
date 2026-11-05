@@ -66,14 +66,14 @@ namespace DidYouSeeThatMod.Services
         }
 
         /// <summary>
-        /// Calculates a visible trajectory in front or in the peripheral vision of the local player
-        /// so the player can clearly see the shadow pass by.
+        /// Calculates a distant visible trajectory (12.5m to 28m ahead) where the shadow either
+        /// crosses a corridor in front of the player or stands static watching from the distance for ~2 seconds.
         /// </summary>
         /// <param name="localPlayer">The local player avatar.</param>
         /// <param name="startPos">Outputs the floor-snapped starting world position.</param>
-        /// <param name="endPos">Outputs the floor-snapped ending world position.</param>
-        /// <param name="duration">Outputs the duration in seconds for the shadow movement.</param>
-        /// <returns><see langword="true"/> if a valid trajectory was found; otherwise <see langword="false"/>.</returns>
+        /// <param name="endPos">Outputs the floor-snapped ending world position (equal to <paramref name="startPos"/> when static).</param>
+        /// <param name="duration">Outputs the duration in seconds (~2.0s).</param>
+        /// <returns><see langword="true"/> if a valid distant spot was found; otherwise <see langword="false"/>.</returns>
         public bool TryFindShadowTrajectory(
             PlayerAvatar localPlayer,
             out Vector3 startPos,
@@ -82,9 +82,10 @@ namespace DidYouSeeThatMod.Services
         {
             startPos = Vector3.zero;
             endPos = Vector3.zero;
-            var minDur = Mathf.Max(1.0f, _config.ShadowDurationMinSeconds.Value);
-            var maxDur = Mathf.Max(minDur + 0.2f, _config.ShadowDurationMaxSeconds.Value);
-            duration = UnityEngine.Random.Range(minDur, maxDur);
+            var minDur = Mathf.Max(1.5f, _config.ShadowDurationMinSeconds.Value);
+            var maxDur = Mathf.Max(minDur, _config.ShadowDurationMaxSeconds.Value);
+            var isStaticShadow = UnityEngine.Random.value < 0.5f;
+            duration = isStaticShadow ? minDur : UnityEngine.Random.Range(minDur, maxDur);
 
             var camTransform = SoundLibraryService.ResolveLocalListenerTransform();
             if (camTransform == null || localPlayer == null)
@@ -101,14 +102,19 @@ namespace DidYouSeeThatMod.Services
 
             var obstructMask = SemiFunc.LayerMaskGetVisionObstruct();
 
-            // 1. First try using nearby LevelPoints in front of the player so shadows walk between real corridor/doorway nodes.
-            var nearbyPoints = SemiFunc.LevelPointGetWithinDistance(localPlayer.transform.position, 5.5f, 16.5f);
-            if (nearbyPoints != null && nearbyPoints.Count > 0)
+            // Calculate the visible distance window inside the game's active fog & camera far clip plane.
+            var currentFogEnd = RenderSettings.fog ? RenderSettings.fogEndDistance : 20.0f;
+            var minSpawnDist = 8.5f;
+            var maxSpawnDist = Mathf.Clamp(currentFogEnd * 0.84f, 11.5f, 16.5f);
+
+            // 1. Search distant LevelPoints (8.5m to maxSpawnDist) in front of the player with clear line of sight.
+            var distantPoints = SemiFunc.LevelPointGetWithinDistance(localPlayer.transform.position, minSpawnDist, maxSpawnDist);
+            if (distantPoints != null && distantPoints.Count > 0)
             {
-                var startIndex = UnityEngine.Random.Range(0, nearbyPoints.Count);
-                for (var i = 0; i < nearbyPoints.Count; i++)
+                var startIndex = UnityEngine.Random.Range(0, distantPoints.Count);
+                for (var i = 0; i < distantPoints.Count; i++)
                 {
-                    var lp = nearbyPoints[(startIndex + i) % nearbyPoints.Count];
+                    var lp = distantPoints[(startIndex + i) % distantPoints.Count];
                     if (lp == null)
                     {
                         continue;
@@ -118,83 +124,108 @@ namespace DidYouSeeThatMod.Services
                     var toPoint = candidatePos - eyePos;
                     var flatToPoint = Vector3.ProjectOnPlane(toPoint, Vector3.up);
                     var dist = flatToPoint.magnitude;
-                    if (dist < 5.0f || dist > 17.0f)
+                    if (dist < minSpawnDist || dist > maxSpawnDist)
                     {
                         continue;
                     }
 
                     var angle = Vector3.Angle(forwardFlat, flatToPoint.normalized);
-                    if (angle > 62.0f)
+                    if (angle > 44.0f)
                     {
                         continue;
                     }
 
-                    // Check that the player has line of sight to chest height at this LevelPoint.
-                    var chestPos = candidatePos + Vector3.up * 1.1f;
+                    // Ensure the player has unobstructed line of sight to this distant corridor/room point.
+                    var chestPos = candidatePos + Vector3.up * 1.15f;
                     if (Physics.Linecast(eyePos, chestPos, obstructMask))
                     {
                         continue;
                     }
 
-                    startPos = SnapToFloor(candidatePos, obstructMask);
-
-                    // Walk toward a connected LevelPoint or laterally across the player's view.
-                    if (lp.ConnectedPoints != null && lp.ConnectedPoints.Count > 0)
+                    var anchorFloorPos = SnapToFloor(candidatePos, obstructMask);
+                    if (isStaticShadow)
                     {
-                        var connected = lp.ConnectedPoints[UnityEngine.Random.Range(0, lp.ConnectedPoints.Count)];
-                        if (connected != null)
-                        {
-                            var dir = (connected.transform.position - startPos);
-                            dir.y = 0.0f;
-                            if (dir.sqrMagnitude > 0.25f)
-                            {
-                                var travelDist = Mathf.Clamp(dir.magnitude, 3.2f, 6.2f);
-                                endPos = SnapToFloor(startPos + dir.normalized * travelDist, obstructMask);
-                                return true;
-                            }
-                        }
+                        startPos = anchorFloorPos;
+                        endPos = anchorFloorPos;
+                        return true;
                     }
 
-                    var lateralSign = UnityEngine.Random.value < 0.5f ? -1.0f : 1.0f;
-                    var lateralDir = Vector3.Cross(Vector3.up, flatToPoint.normalized) * lateralSign;
-                    endPos = SnapToFloor(startPos + lateralDir * UnityEngine.Random.Range(3.5f, 5.8f), obstructMask);
+                    BuildCorridorCrossingEndpoints(anchorFloorPos, flatToPoint.normalized, obstructMask, out startPos, out endPos);
                     return true;
                 }
             }
 
-            // 2. Fallback: Raycast into the peripheral vision cone in front of the player.
+            // 2. Fallback: Raycast down corridors ahead of the player within the visible fog window.
             for (var attempt = 0; attempt < 6; attempt++)
             {
                 var sideSign = UnityEngine.Random.value < 0.5f ? -1.0f : 1.0f;
-                var yawOffset = sideSign * UnityEngine.Random.Range(16.0f, 46.0f);
+                var yawOffset = sideSign * UnityEngine.Random.Range(0.0f, 26.0f);
                 var rayDir = Quaternion.Euler(0.0f, yawOffset, 0.0f) * forwardFlat;
-                var targetDist = UnityEngine.Random.Range(6.0f, 12.5f);
+                var targetDist = UnityEngine.Random.Range(minSpawnDist + 0.5f, maxSpawnDist);
 
                 if (Physics.Raycast(eyePos, rayDir, out var hit, targetDist, obstructMask))
                 {
-                    if (hit.distance < 4.8f)
+                    if (hit.distance < minSpawnDist + 0.5f)
                     {
                         continue;
                     }
 
-                    targetDist = hit.distance - 0.85f;
+                    targetDist = hit.distance - 1.0f;
                 }
 
-                var rawStart = localPlayer.transform.position + rayDir * targetDist;
-                startPos = SnapToFloor(rawStart, obstructMask);
+                var rawAnchor = localPlayer.transform.position + rayDir * targetDist;
+                var anchorFloorPos = SnapToFloor(rawAnchor, obstructMask);
 
-                // Walk across the player's view toward the opposite side or deeper into the corridor.
-                var crossDir = Vector3.Cross(Vector3.up, rayDir) * (-sideSign);
-                var moveVec = (crossDir * 0.8f + forwardFlat * 0.35f).normalized * UnityEngine.Random.Range(3.4f, 5.5f);
-                endPos = SnapToFloor(startPos + moveVec, obstructMask);
+                var chestCheck = anchorFloorPos + Vector3.up * 1.15f;
+                if (Physics.Linecast(eyePos, chestCheck, obstructMask))
+                {
+                    continue;
+                }
+
+                if (isStaticShadow)
+                {
+                    startPos = anchorFloorPos;
+                    endPos = anchorFloorPos;
+                    return true;
+                }
+
+                BuildCorridorCrossingEndpoints(anchorFloorPos, rayDir, obstructMask, out startPos, out endPos);
                 return true;
             }
 
             return false;
         }
 
+        private static void BuildCorridorCrossingEndpoints(
+            Vector3 centerFloorPos,
+            Vector3 viewDirFlat,
+            LayerMask obstructMask,
+            out Vector3 startPos,
+            out Vector3 endPos)
+        {
+            var lateralSign = UnityEngine.Random.value < 0.5f ? -1.0f : 1.0f;
+            var lateralDir = Vector3.Cross(Vector3.up, viewDirFlat).normalized * lateralSign;
+            var chestCenter = centerFloorPos + Vector3.up * 1.0f;
+
+            // Find how much room there is on both sides of the corridor so it crosses cleanly from side to side.
+            var backClearance = 2.4f;
+            if (Physics.Raycast(chestCenter, -lateralDir, out var backHit, 2.8f, obstructMask))
+            {
+                backClearance = Mathf.Max(0.4f, backHit.distance - 0.35f);
+            }
+
+            var forwardClearance = 3.8f;
+            if (Physics.Raycast(chestCenter, lateralDir, out var fwdHit, 4.5f, obstructMask))
+            {
+                forwardClearance = Mathf.Max(1.8f, fwdHit.distance - 0.25f);
+            }
+
+            startPos = SnapToFloor(centerFloorPos - lateralDir * backClearance, obstructMask);
+            endPos = SnapToFloor(centerFloorPos + lateralDir * forwardClearance, obstructMask);
+        }
+
         /// <summary>
-        /// Spawns a shadow hallucination moving from <paramref name="startPos"/> to <paramref name="endPos"/>.
+        /// Spawns a shadow hallucination moving from <paramref name="startPos"/> to <paramref name="endPos"/> (or static when equal).
         /// </summary>
         /// <param name="modelKind">Whether to clone a player or an entity model.</param>
         /// <param name="entityIndex">Index in <see cref="EnemyDirector.enemiesSpawned"/> when <paramref name="modelKind"/> is <see cref="ShadowModelKind.Entity"/>.</param>
@@ -218,9 +249,23 @@ namespace DidYouSeeThatMod.Services
 
             var moveDir = endPos - startPos;
             moveDir.y = 0.0f;
-            if (moveDir.sqrMagnitude > 0.01f)
+            if (moveDir.sqrMagnitude > 0.05f)
             {
                 shadowRoot.transform.rotation = Quaternion.LookRotation(moveDir.normalized, Vector3.up);
+            }
+            else
+            {
+                // Static shadow: face directly toward the local player from the distance.
+                var listener = SoundLibraryService.ResolveLocalListenerTransform();
+                if (listener != null)
+                {
+                    var toPlayer = listener.position - startPos;
+                    toPlayer.y = 0.0f;
+                    if (toPlayer.sqrMagnitude > 0.01f)
+                    {
+                        shadowRoot.transform.rotation = Quaternion.LookRotation(toPlayer.normalized, Vector3.up);
+                    }
+                }
             }
 
             var visualContainer = new GameObject("Visuals");
@@ -570,17 +615,16 @@ namespace DidYouSeeThatMod.Services
         }
 
         /// <summary>
-        /// Controls the movement, subtle floating bob, gaze detection, and alpha fade of a spawned shadow figure.
+        /// Controls the movement, static gaze, and alpha fade of a spawned shadow figure over its ~2s lifetime.
         /// </summary>
         private sealed class ShadowFigureBehaviour : MonoBehaviour
         {
             private const float BaseShadowAlpha = 0.88f;
             private Vector3 _startPos;
             private Vector3 _endPos;
+            private bool _isStatic;
             private float _duration;
-            private float _directGazeHoldSeconds;
             private float _elapsed;
-            private float _directGazeTimer;
             private bool _fadingOutQuickly;
             private float _quickFadeProgress;
             private Material? _material;
@@ -596,8 +640,8 @@ namespace DidYouSeeThatMod.Services
             {
                 _startPos = startPos;
                 _endPos = endPos;
+                _isStatic = (endPos - startPos).sqrMagnitude < 0.05f;
                 _duration = Mathf.Max(1.2f, duration);
-                _directGazeHoldSeconds = Mathf.Max(0.35f, directGazeHoldSeconds);
                 _material = material;
                 _visualContainer = visualContainer;
                 SetAlpha(0.0f);
@@ -615,39 +659,36 @@ namespace DidYouSeeThatMod.Services
                 }
 
                 var t = Mathf.Clamp01(_elapsed / _duration);
-                var currentPos = Vector3.Lerp(_startPos, _endPos, t);
+                var currentPos = _isStatic ? _startPos : Vector3.Lerp(_startPos, _endPos, t);
 
-                // Subtle eerie stepping/gliding vertical oscillation.
-                if (_visualContainer != null)
+                // Subtle stepping motion only when crossing a corridor; static shadows stand completely still.
+                if (!_isStatic && _visualContainer != null)
                 {
-                    var bobOffset = Mathf.Sin(_elapsed * 7.5f) * 0.045f;
+                    var bobOffset = Mathf.Sin(_elapsed * 9.0f) * 0.04f;
                     _visualContainer.localPosition = new Vector3(0.0f, Mathf.Abs(bobOffset), 0.0f);
                 }
 
                 transform.position = currentPos;
 
-                // Check if the local player is staring directly at the shadow or gets too close.
                 var camTransform = SoundLibraryService.ResolveLocalListenerTransform();
-                if (camTransform != null && !_fadingOutQuickly)
+                if (camTransform != null)
                 {
-                    var shadowCenter = currentPos + Vector3.up * 1.0f;
-                    var toShadow = shadowCenter - camTransform.position;
-                    var dist = toShadow.magnitude;
-
-                    if (dist < 2.3f)
+                    if (_isStatic)
                     {
-                        _fadingOutQuickly = true;
-                    }
-                    else if (dist < 20.0f)
-                    {
-                        var dot = Vector3.Dot(camTransform.forward, toShadow.normalized);
-                        if (dot > 0.88f)
+                        var lookDir = camTransform.position - currentPos;
+                        lookDir.y = 0.0f;
+                        if (lookDir.sqrMagnitude > 0.01f)
                         {
-                            _directGazeTimer += dt;
-                            if (_directGazeTimer >= _directGazeHoldSeconds)
-                            {
-                                _fadingOutQuickly = true;
-                            }
+                            transform.rotation = Quaternion.LookRotation(lookDir.normalized, Vector3.up);
+                        }
+                    }
+
+                    if (!_fadingOutQuickly)
+                    {
+                        var dist = Vector3.Distance(camTransform.position, currentPos + Vector3.up * 1.0f);
+                        if (dist < 3.8f)
+                        {
+                            _fadingOutQuickly = true;
                         }
                     }
                 }
@@ -655,7 +696,7 @@ namespace DidYouSeeThatMod.Services
                 float alpha;
                 if (_fadingOutQuickly)
                 {
-                    _quickFadeProgress += dt / 0.45f;
+                    _quickFadeProgress += dt / 0.25f;
                     alpha = Mathf.Lerp(BaseShadowAlpha, 0.0f, Mathf.Clamp01(_quickFadeProgress));
                     if (_quickFadeProgress >= 1.0f)
                     {
@@ -665,9 +706,9 @@ namespace DidYouSeeThatMod.Services
                 }
                 else
                 {
-                    // Smooth fade in during first 0.35s and fade out during last 0.55s.
-                    var fadeIn = Mathf.Clamp01(_elapsed / 0.35f);
-                    var fadeOut = Mathf.Clamp01((_duration - _elapsed) / 0.55f);
+                    // Quick fade in (0.18s) and clean fade out during the last 0.30s of the 2s duration.
+                    var fadeIn = Mathf.Clamp01(_elapsed / 0.18f);
+                    var fadeOut = Mathf.Clamp01((_duration - _elapsed) / 0.30f);
                     alpha = BaseShadowAlpha * Mathf.Min(fadeIn, fadeOut);
                 }
 
