@@ -1,0 +1,106 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>DidYouSeeThatMod</AssemblyName>
+    <RootNamespace>DidYouSeeThatMod</RootNamespace>
+    <Version>1.0.0</Version>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="$(RepoManagedDir)\mscorlib.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="netstandard">
+      <HintPath>$(RepoManagedDir)\netstandard.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(RepoManagedDir)\System.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(RepoManagedDir)\System.Core.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BepInExCoreDir)\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx">
+      <HintPath>$(BepInExCoreDir)\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(RepoManagedDir)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(RepoManagedDir)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(RepoManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(RepoManagedDir)\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AnimationModule">
+      <HintPath>$(RepoManagedDir)\UnityEngine.AnimationModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(RepoManagedDir)\UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UnityWebRequestModule">
+      <HintPath>$(RepoManagedDir)\UnityEngine.UnityWebRequestModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UnityWebRequestAudioModule">
+      <HintPath>$(RepoManagedDir)\UnityEngine.UnityWebRequestAudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PhotonUnityNetworking">
+      <HintPath>$(RepoManagedDir)\PhotonUnityNetworking.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PhotonRealtime">
+      <HintPath>$(RepoManagedDir)\PhotonRealtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Photon3Unity3D">
+      <HintPath>$(RepoManagedDir)\Photon3Unity3D.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <SoundAssets Include="$(MSBuildThisFileDirectory)..\..\sounds\*.ogg" />
+  </ItemGroup>
+
+  <Target Name="CopySoundsToOutput" AfterTargets="Build">
+    <MakeDir Directories="$(OutputPath)sounds" />
+    <Copy SourceFiles="@(SoundAssets)" DestinationFolder="$(OutputPath)sounds" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="DeployToBepInExPlugins" AfterTargets="Build" Condition="'$(DeployToProfile)' == 'true' And Exists('$(BepInExPluginsDir)')">
+    <PropertyGroup>
+      <PluginTargetDir>$(BepInExPluginsDir)\$(AssemblyName)</PluginTargetDir>
+      <PluginSoundsDir>$(PluginTargetDir)\sounds</PluginSoundsDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(PluginTargetDir);$(PluginSoundsDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginTargetDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(SoundAssets)" DestinationFolder="$(PluginSoundsDir)" SkipUnchangedFiles="true" />
+    <Message Importance="High" Text="[DidYouSeeThatMod] Deployed $(TargetFileName) and @(SoundAssets->Count()) sound(s) -> $(PluginTargetDir)" />
+  </Target>
+
+</Project>
+

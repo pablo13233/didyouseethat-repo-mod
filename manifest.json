@@ -1,0 +1,10 @@
+{
+  "name": "DidYouSeeThat",
+  "version_number": "1.0.0",
+  "website_url": "https://github.com/pablo13233/didyouseethat-repo-mod",
+  "description": "Psychological horror & paranoia mod for R.E.P.O. Adds fleeting shadow figures (players & entities), spatial 3D whispers, and eerie hallucinations that trigger individually or for the whole team—and intensify when isolated.",
+  "dependencies": [
+    "BepInEx-BepInExPack-5.4.2100"
+  ]
+}
+
